@@ -19,6 +19,14 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
       - name: Build with Gradle
         run: |
+          # Dynamic search for Gradle project directory
+          gradle_dir=$(find . -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1 | xargs dirname)
+          if [ -n "${gradle_dir}" ] && [ "${gradle_dir}" != "." ]; then
+            echo "Found Gradle project in: ${gradle_dir}"
+            cd "${gradle_dir}"
+          else
+            echo "No settings.gradle found in subdirectory, running from root"
+          fi
           chmod +x gradlew || true
           ./gradlew assembleDebug || gradle assembleDebug || echo "No Gradle wrapper found"
       - name: Upload APK
