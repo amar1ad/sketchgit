@@ -7,6 +7,7 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
@@ -68,8 +69,24 @@ fun DashboardScreen(
     val isFetchingBackups by viewModel.isFetchingBackups.collectAsStateWithLifecycle()
     val backupFetchError by viewModel.backupFetchError.collectAsStateWithLifecycle()
 
+    val projectConflicts by viewModel.projectConflicts.collectAsStateWithLifecycle()
+    val githubBuildState by viewModel.githubBuildState.collectAsStateWithLifecycle()
+
     var activeTab by remember { mutableStateOf(0) }
     var showAddDialog by remember { mutableStateOf(false) }
+
+    // Render build progress dialog overlay
+    val buildState by viewModel.buildState.collectAsStateWithLifecycle()
+    BuildProgressDialog(
+        buildState = buildState,
+        onDismiss = { viewModel.resetBuildState() }
+    )
+
+    // Render remote GitHub Actions run dialog overlay
+    GitHubBuildProgressDialog(
+        buildState = githubBuildState,
+        onDismiss = { viewModel.resetGithubBuildState() }
+    )
 
     // Check for storage permission
     var hasStoragePermission by remember {
@@ -98,14 +115,6 @@ fun DashboardScreen(
 
     val isCreatingRepo by viewModel.isCreatingRepo.collectAsStateWithLifecycle()
     val repoCreationResult by viewModel.repoCreationResult.collectAsStateWithLifecycle()
-
-    val buildState by viewModel.buildState.collectAsStateWithLifecycle()
-
-    // Render build progress dialog overlay
-    BuildProgressDialog(
-        buildState = buildState,
-        onDismiss = { viewModel.resetBuildState() }
-    )
 
     if (editorActiveProject != null) {
         ProjectEditorLayout(
@@ -186,25 +195,31 @@ fun DashboardScreen(
                 NavigationBarItem(
                     selected = activeTab == 0,
                     onClick = { activeTab = 0 },
-                    icon = { Icon(Icons.Default.Folder, contentDescription = null) },
-                    label = { Text("المشاريع") }
+                    icon = { Icon(Icons.Default.Dashboard, contentDescription = null) },
+                    label = { Text("لوحة التحكم") }
                 )
                 NavigationBarItem(
                     selected = activeTab == 1,
                     onClick = { activeTab = 1 },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                    label = { Text("الإعدادات") }
+                    icon = { Icon(Icons.Default.Folder, contentDescription = null) },
+                    label = { Text("المشاريع") }
                 )
                 NavigationBarItem(
                     selected = activeTab == 2,
                     onClick = { activeTab = 2 },
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                    label = { Text("الإعدادات") }
+                )
+                NavigationBarItem(
+                    selected = activeTab == 3,
+                    onClick = { activeTab = 3 },
                     icon = { Icon(Icons.Default.History, contentDescription = null) },
                     label = { Text("السجلات") }
                 )
             }
         },
         floatingActionButton = {
-            if (activeTab == 0) {
+            if (activeTab == 1) {
                 ExtendedFloatingActionButton(
                     onClick = { showAddDialog = true },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
@@ -285,7 +300,18 @@ fun DashboardScreen(
 
             // Tabs Content
             when (activeTab) {
-                0 -> ProjectsTabContent(
+                0 -> DashboardTabContent(
+                    projects = projectsList,
+                    config = currentConfig,
+                    projectConflicts = projectConflicts,
+                    onTriggerRemoteBuild = { viewModel.triggerRemoteGitHubBuild(it) },
+                    onResolveConflicts = { project, keepLocal -> viewModel.resolveConflictsForProject(project, keepLocal) },
+                    onQuickSync = { viewModel.syncProject(it) },
+                    onOpenEditor = { viewModel.openProjectInEditor(it, context) },
+                    onBuildApk = { viewModel.buildProjectApk(it, context) },
+                    onScanClick = { viewModel.scanProjects(); viewModel.scanAllProjectsForConflicts() }
+                )
+                1 -> ProjectsTabContent(
                     projects = projectsList,
                     config = currentConfig,
                     scanPath = scanPath,
@@ -311,7 +337,7 @@ fun DashboardScreen(
                         viewModel.updateProjectSettings(project.copy(fixManifestOnSync = enabled))
                     }
                 )
-                1 -> SettingsTabContent(
+                2 -> SettingsTabContent(
                     config = currentConfig,
                     repos = githubRepos,
                     isFetchingRepos = isFetchingRepos,
@@ -329,7 +355,7 @@ fun DashboardScreen(
                         viewModel.saveGitHubConfig(user, token, repo, branch, mode, isAuto)
                     }
                 )
-                2 -> LogsTabContent(
+                3 -> LogsTabContent(
                     logs = syncLogsList,
                     onClear = { viewModel.clearLogs() }
                 )
@@ -1187,6 +1213,47 @@ fun SettingsTabContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 16.sp
                     )
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Code,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "مهندس برمجيات عمار محمد فطيح",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Software Engineer Amar Mohamed Fteih © 2026",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -2657,5 +2724,707 @@ fun BuildProgressDialog(
         },
         shape = RoundedCornerShape(28.dp)
     )
+}
+
+@Composable
+fun GitHubBuildProgressDialog(
+    buildState: com.example.ui.viewmodel.GitHubBuildState,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    if (buildState is com.example.ui.viewmodel.GitHubBuildState.Idle) return
+
+    AlertDialog(
+        onDismissRequest = {
+            if (buildState !is com.example.ui.viewmodel.GitHubBuildState.Triggering) {
+                onDismiss()
+            }
+        },
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val icon = when (buildState) {
+                    is com.example.ui.viewmodel.GitHubBuildState.Triggering -> Icons.Default.Settings
+                    is com.example.ui.viewmodel.GitHubBuildState.Success -> Icons.Default.CheckCircle
+                    is com.example.ui.viewmodel.GitHubBuildState.Failure -> Icons.Default.Error
+                    else -> Icons.Default.Settings
+                }
+                val tint = when (buildState) {
+                    is com.example.ui.viewmodel.GitHubBuildState.Triggering -> MaterialTheme.colorScheme.primary
+                    is com.example.ui.viewmodel.GitHubBuildState.Success -> Color(0xFF4CAF50)
+                    is com.example.ui.viewmodel.GitHubBuildState.Failure -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
+                Icon(imageVector = icon, contentDescription = null, tint = tint)
+                Text(
+                    text = when (buildState) {
+                        is com.example.ui.viewmodel.GitHubBuildState.Triggering -> "تفعيل بناء السحابة... ⚙️"
+                        is com.example.ui.viewmodel.GitHubBuildState.Success -> "تم إطلاق البناء في GitHub! 🎉"
+                        is com.example.ui.viewmodel.GitHubBuildState.Failure -> "خطأ تجميع GitHub ❌"
+                        else -> "تجميع GitHub Actions"
+                    },
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                when (buildState) {
+                    is com.example.ui.viewmodel.GitHubBuildState.Triggering -> {
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                        Text(
+                            text = "جاري إنشاء ورفع ملف تكوين الأندرويد لـ GitHub Actions، ثم إرسال وتنشيط المحثّ التلقائي للبناء (GitHub Run Dispatch)... يرجى الانتظار.",
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    is com.example.ui.viewmodel.GitHubBuildState.Success -> {
+                        Text(
+                            text = "تم بنجاح ومثالية إطلاق خوادم البناء والتجميع في تطبيقك على GitHub.\n\nيمكنك الآن متابعة ومراقبة سير التجميع مباشرة وتحميل الحزمة APK النهائية فور انتهائها عبر الرابط أدناه.",
+                            fontSize = 13.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFE8F5E9), RoundedCornerShape(8.dp))
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(imageVector = Icons.Default.Link, contentDescription = null, tint = Color(0xFF2E7D32))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = buildState.runUrl,
+                                color = Color(0xFF1B5E20),
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    is com.example.ui.viewmodel.GitHubBuildState.Failure -> {
+                        Text(
+                            text = "فشل في تجميع ومزامنة البناء السحابي عبر GitHub بسبب:\n\n${buildState.error}",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    else -> {}
+                }
+            }
+        },
+        confirmButton = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (buildState is com.example.ui.viewmodel.GitHubBuildState.Success) {
+                    Button(
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            try {
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(buildState.runUrl))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // ignore
+                            }
+                        }
+                    ) {
+                        Icon(imageVector = Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("فتح صفحة البناء", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.padding(start = 8.dp)) {
+                    Text("إغلاق")
+                }
+            }
+        },
+        shape = RoundedCornerShape(24.dp)
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DashboardTabContent(
+    projects: List<SketchwareProject>,
+    config: GitHubConfig?,
+    projectConflicts: Map<String, List<String>>,
+    onTriggerRemoteBuild: (SketchwareProject) -> Unit,
+    onResolveConflicts: (SketchwareProject, Boolean) -> Unit,
+    onQuickSync: (String) -> Unit,
+    onOpenEditor: (SketchwareProject) -> Unit,
+    onBuildApk: (SketchwareProject) -> Unit,
+    onScanClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val totalProjects = projects.size
+    val totalConflicts = projectConflicts.values.count { it.isNotEmpty() }
+    val successfullySyncedCount = projects.count { it.lastSyncStatus == "SUCCESS" }
+    val failedSyncedCount = projects.count { it.lastSyncStatus == "FAILED" }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(vertical = 16.dp)
+    ) {
+        // Premium Software Developer Core Identity Card
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = 1.5.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)
+                        )
+                    )
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+                                    MaterialTheme.colorScheme.background.copy(alpha = 0.05f)
+                                )
+                            )
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(18.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Glowing architectural dynamic developer icon badge
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.primary,
+                                            MaterialTheme.colorScheme.tertiary
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(16.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Engineering,
+                                contentDescription = "المطور المعتمد عمار فطيح",
+                                tint = Color.White,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                    ),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = "المطور الرسمي الحصري",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(vertical = 2.dp, horizontal = 6.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = "مهندس برمجيات عمار محمد فطيح",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Text(
+                                text = "هندسة النظم العبقرية والتطبيقات الذكية ذات البناء الآمن",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Stats Header Section
+        item {
+            Column(modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)) {
+                Text(
+                    text = "نظرة عامة وإحصاءات الأداء والربط 📊",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontFamily = FontFamily.SansSerif
+                )
+                Text(
+                    text = "لوحة تحكم حية لمتابعة المشاريع والتعارضات والمزامنة البرمجية",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Core Statistics Cards HUD
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Total Projects Info Card
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)),
+                        shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("المشاريع الكلية", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
+                            Text(
+                                text = totalProjects.toString(),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 26.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+
+                    // Synced projects
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                        shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFC8E6C9))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("المزامنة الناجحة", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                            }
+                            Text(
+                                text = successfullySyncedCount.toString(),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 26.sp,
+                                color = Color(0xFF1B5E20)
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Failed syncing status
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                        shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFCDD2))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.Cancel, contentDescription = null, tint = Color(0xFFC62828), modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("مشاكل المزامنة", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                            }
+                            Text(
+                                text = failedSyncedCount.toString(),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 26.sp,
+                                color = Color(0xFFB71C1C)
+                            )
+                        }
+                    }
+
+                    // File Conflicts Card Alert Indicator
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (totalConflicts > 0) Color(0xFFFFF3E0) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (totalConflicts > 0) Color(0xFFFFE0B2) else Color.Transparent)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = if (totalConflicts > 0) Color(0xFFEF6C00) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "تعارض الملفات",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (totalConflicts > 0) Color(0xFFEF6C00) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                text = totalConflicts.toString(),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 26.sp,
+                                color = if (totalConflicts > 0) Color(0xFFE65100) else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Active File Conflicts Alert List Item
+        if (totalConflicts > 0) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFFFF3E0), RoundedCornerShape(20.dp))
+                        .border(1.5.dp, Color(0xFFEF6C00), RoundedCornerShape(20.dp))
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "تحذير أمني: تم كشف تعارض دمج دلالي فعال!",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.sp,
+                            color = Color(0xFFE65100),
+                            fontFamily = FontFamily.SansSerif
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "يوجد تعارض في سطور الأكواد البرمجية نتيجة للتعديلات المتزامنة. لحماية سلامة المشروع التجميعية وسورس كود التطبيق، يرجى تصفية التعارض فورا باختيار مسار الاستبقاء المفضل:",
+                        fontSize = 11.sp,
+                        color = Color(0xFF5D4037)
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val conflictedProjects = projects.filter { projectConflicts[it.id]?.isNotEmpty() == true }
+                    conflictedProjects.forEach { project ->
+                        val files = projectConflicts[project.id] ?: emptyList()
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFE0B2))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "📦 مشروع: " + project.name,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color.Black
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                files.forEach { relativePath ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 2.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.InsertDriveFile, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color.Gray)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = relativePath,
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = Color.DarkGray
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = { onResolveConflicts(project, true) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF6C00)),
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Save, contentDescription = null, modifier = Modifier.size(12.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("الإبقاء على المحلي", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { onResolveConflicts(project, false) },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF6C00)),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF6C00)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(12.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("الإبقاء على السحابي", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Full Interactive Action Trigger Buttons for Project Hub
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "مستودع المزامنة السريع 🚀",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontFamily = FontFamily.SansSerif
+                )
+
+                Button(
+                    onClick = onScanClick,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("تدقيق وفحص سريع", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        if (projects.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(imageVector = Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(54.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("لا يوجد مشاريع مكتشفة حتى الآن.", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("انتقل لعلامة تبويب 'المشاريع' لتعديل مسار الفحص أو المزامنة والبدء البرمجي.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                    }
+                }
+            }
+        } else {
+            items(projects) { project ->
+                val filesConflicted = projectConflicts[project.id] ?: emptyList()
+                val isConflicted = filesConflicted.isNotEmpty()
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isConflicted) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        width = 1.dp,
+                        color = if (isConflicted) Color(0xFFFFCDD2) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = project.name,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.sp,
+                                    color = if (isConflicted) Color(0xFFB71C1C) else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "حزمة: ${project.packageName}",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                )
+                            }
+
+                            // Sync status chip visual indicator
+                            val (chipColor, label, labelColor) = when {
+                                isConflicted -> Triple(Color(0xFFFFCDD2), "هناك تعارض نشط! ⚠️", Color(0xFFC62828))
+                                project.lastSyncStatus == "SUCCESS" -> Triple(Color(0xFFE8F5E9), "مزامنة آمنة ✓", Color(0xFF2E7D32))
+                                project.lastSyncStatus == "FAILED" -> Triple(Color(0xFFFFCDD2), "فشلت المزامنة", Color(0xFFC62828))
+                                else -> Triple(MaterialTheme.colorScheme.surfaceVariant, "غير متزامن", MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = chipColor),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = labelColor,
+                                    modifier = Modifier.padding(vertical = 3.dp, horizontal = 8.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Trigger details & action hub
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            val displayTime = if (project.lastSyncTimestamp > 0) {
+                                val sdf = SimpleDateFormat("HH:mm - yyyy/MM/dd", Locale.getDefault())
+                                "مزامنة: " + sdf.format(Date(project.lastSyncTimestamp))
+                            } else {
+                                "مزامنة: لم تتم بعد"
+                            }
+                            Text(
+                                text = displayTime,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Open Editor Icon Button!
+                                FilledIconButton(
+                                    onClick = { onOpenEditor(project) },
+                                    modifier = Modifier.size(36.dp),
+                                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Edit, contentDescription = "تعديل الملفات", modifier = Modifier.size(16.dp))
+                                }
+
+                                // ⚙️ Remote Cloud Builder on GitHub Actions!
+                                val hasConfig = config != null && config.token.isNotBlank() && config.repositoryName.isNotBlank()
+                                TooltipBox(
+                                    positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                    tooltip = { PlainTooltip { Text("تجميع سحابي على GitHub Actions") } },
+                                    state = rememberTooltipState()
+                                ) {
+                                    FilledIconButton(
+                                        onClick = {
+                                            if (hasConfig) onTriggerRemoteBuild(project)
+                                            else {
+                                                android.widget.Toast.makeText(context, "الرجاء ضبط إعدادات الـ GitHub أولاً!", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        modifier = Modifier.size(36.dp),
+                                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1565C0)),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.CloudUpload, contentDescription = "تجميع GitHub Actions", tint = Color.White, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+
+                                // Quick Sync Button
+                                FilledIconButton(
+                                    onClick = { onQuickSync(project.id) },
+                                    modifier = Modifier.size(36.dp),
+                                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF2E7D32)),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Sync, contentDescription = "مزامنة سريعة بـ GitHub", tint = Color.White, modifier = Modifier.size(16.dp))
+                                }
+
+                                // Build local APK Button
+                                FilledIconButton(
+                                    onClick = { onBuildApk(project) },
+                                    modifier = Modifier.size(36.dp),
+                                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Build, contentDescription = "تجميع APK محلي", tint = Color.White, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
