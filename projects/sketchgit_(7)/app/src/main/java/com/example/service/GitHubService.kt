@@ -182,7 +182,14 @@ class GitHubService {
                 )
 
                 if (success) {
-                    progressListener.onMessage("تم رفع النسخة الاحتياطية ($targetName) بنجام!")
+                    progressListener.onMessage("تم رفع النسخة الاحتياطية ($targetName) بنجاح!")
+                    try {
+                        ensureWorkflowFileExists(token, repoOwnerAndName, branch)
+                        progressListener.onMessage("تم إنشاء وتأكيد ملف البناء التلقائي .github/workflows/android-build.yml بنجاح!")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to automatically create workflow file: ${e.localizedMessage}")
+                        progressListener.onMessage("ملاحظة: تعذر تكوين ملف البناء التلقائي حالياً: ${e.localizedMessage}")
+                    }
                     progressListener.onFinished(true)
                 } else {
                     progressListener.onError("فشل رفع الملف إلى المستودع.")
@@ -271,6 +278,15 @@ class GitHubService {
                 }
 
                 progressListener.onMessage("اكتملت مزامنة الملفات. تم رفع $successCount من إجمالي $totalCount ملفات.")
+                if (successCount > 0) {
+                    try {
+                        ensureWorkflowFileExists(token, repoOwnerAndName, branch)
+                        progressListener.onMessage("تم إنشاء وتأكيد ملف البناء التلقائي .github/workflows/android-build.yml بنجاح!")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to automatically create workflow file: ${e.localizedMessage}")
+                        progressListener.onMessage("ملاحظة: تعذر تكوين ملف البناء التلقائي حالياً: ${e.localizedMessage}")
+                    }
+                }
                 progressListener.onFinished(successCount > 0)
             } catch (e: Exception) {
                 progressListener.onError("عطل في المزامنة المتسلسلة: ${e.localizedMessage}")
@@ -423,6 +439,129 @@ class GitHubService {
 
         client.newCall(request).execute().use { response ->
             return response.code == 201
+        }
+    }
+
+    /**
+     * Ensures that the Android GitHub Actions workflow file `.github/workflows/android-build.yml` exists in the repository.
+     * If not, it commits/uploads it to enable remote automatic packaging.
+     */
+    @Throws(IOException::class)
+    fun ensureWorkflowFileExists(
+        token: String,
+        repoOwnerAndName: String,
+        branch: String
+    ): Boolean {
+        val path = ".github/workflows/android-build.yml"
+        
+        // 1. Safe getFileSha check - wrapped in try-catch so initial creation on a fresh repo/branch doesn't crash the checking
+        val existingSha = try {
+            getFileSha(token, repoOwnerAndName, branch, path)
+        } catch (e: Exception) {
+            Log.e("GitHubService", "Safely ignored getFileSha checking failure: ${e.localizedMessage}")
+            null
+        }
+
+        if (existingSha != null) {
+            // File already exists!
+            return true
+        }
+
+        // Workflow content
+        val workflowContent = """
+            name: SketchGit Android Build
+            on:
+              workflow_dispatch:
+              push:
+                branches: [ "$branch" ]
+            jobs:
+              build:
+                name: Build Android Debug APK
+                runs-on: ubuntu-latest
+                steps:
+                  - name: Checkout Repository
+                    uses: actions/checkout@v4
+                    with:
+                      fetch-depth: 1
+                  - name: Set up JDK 17
+                    uses: actions/setup-java@v3
+                    with:
+                      java-version: '17'
+                      distribution: 'temurin'
+                      cache: gradle
+                  - name: Assemble Debug APK
+                    run: |
+                      chmod +x gradlew || true
+                      ./gradlew assembleDebug || ./gradlew build || gradle assembleDebug || echo "No Gradle wrapper found"
+                  - name: Upload APK Artifact
+                    uses: actions/upload-artifact@v3
+                    with:
+                      name: app-debug-apk
+                      path: '**/build/outputs/apk/debug/*.apk'
+        """.trimIndent()
+
+        val base64Content = Base64.encodeToString(workflowContent.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val jsonPayload = JSONObject().apply {
+            put("message", "Add SketchGit Android Compilation Actions Workflow ⚙️ [Skip CI]")
+            put("content", base64Content)
+            put("branch", branch)
+        }
+
+        val body = jsonPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+        val url = "https://api.github.com/repos/$repoOwnerAndName/contents/$path"
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "token $token")
+            .header("Accept", "application/vnd.github.v3+json")
+            .put(body)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful || response.code == 201 || response.code == 200) {
+                return true
+            } else {
+                val errorBody = response.body?.string() ?: ""
+                throw IOException("فشل إنشاء ملف البناء على GitHub بكود: ${response.code}. رسالة الاستجابة: $errorBody")
+            }
+        }
+    }
+
+    /**
+     * Triggers the GitHub Actions Android rebuild workflow dispatch event.
+     * Returns a Pair: first element is success state, second is status message or runUrl.
+     */
+    fun triggerGitHubWorkflow(
+        token: String,
+        repoOwnerAndName: String,
+        branch: String
+    ): Pair<Boolean, String> {
+        val url = "https://api.github.com/repos/$repoOwnerAndName/actions/workflows/android-build.yml/dispatches"
+        val jsonPayload = JSONObject().apply {
+            put("ref", branch)
+        }
+
+        val body = jsonPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "token $token")
+            .header("Accept", "application/vnd.github.v3+json")
+            .post(body)
+            .build()
+
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.code == 204 || response.code == 200 || response.code == 202) {
+                    val runPageUrl = "https://github.com/$repoOwnerAndName/actions"
+                    return Pair(true, runPageUrl)
+                } else if (response.code == 404) {
+                    return Pair(false, "لم يتم العثور على ملف Workflow. يرجى المزامنة أولاً.")
+                } else {
+                    val errBody = response.body?.string() ?: ""
+                    return Pair(false, "فشل تفعيل البناء: كود الاستجابة ${response.code}\n$errBody")
+                }
+            }
+        } catch (e: Exception) {
+            return Pair(false, "حدث خطأ أثناء محاولة الاتصال بـ GitHub Actions: ${e.localizedMessage}")
         }
     }
 }
