@@ -35,7 +35,7 @@ jobs:
           
           # 1. Check if gradle-wrapper.properties exists and has a distributionUrl
           if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
-            wrapper_version=$(grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties | sed -n 's/.*gradle-\([0-9.]*\)-\(bin\|all\)\.zip.*/\1/p')
+            wrapper_version=$(grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties 2>/dev/null | sed -n 's/.*gradle-\([0-9.]*\)-\(bin\|all\)\.zip.*/\1/p' || true)
             if [ -n "${wrapper_version}" ] ; then
               echo "Found Gradle version in wrapper properties: ${wrapper_version}"
               target_gradle_version="${wrapper_version}"
@@ -45,16 +45,16 @@ jobs:
           # 2. Extract AGP version to handle newer Gradle requirements (e.g. AGP 9.1.1+ requires Gradle 9.3.1+)
           agp_version=""
           if [ -f build.gradle ]; then
-            agp_version=$(grep -oE "com\.android\.(application|library)[\"']? version [\"']?[0-9.]+" build.gradle | grep -oE "[0-9.]+$")
+            agp_version=$(grep -oE "com\.android\.(application|library)[\"']? version [\"']?[0-9.]+" build.gradle 2>/dev/null | grep -oE "[0-9.]+$" || true)
           fi
           if [ -z "${agp_version}" ] && [ -f build.gradle.kts ]; then
-            agp_version=$(grep -oE "com\.android\.(application|library)[\"']? version [\"']?[0-9.]+" build.gradle.kts | grep -oE "[0-9.]+$")
+            agp_version=$(grep -oE "com\.android\.(application|library)[\"']? version [\"']?[0-9.]+" build.gradle.kts 2>/dev/null | grep -oE "[0-9.]+$" || true)
             if [ -z "${agp_version}" ] ; then
-              agp_version=$(grep -oE "id\([\"']com\.android\.(application|library)[\"']\)\s*version\s*[\"']([0-9.]+)[\"']" build.gradle.kts | grep -oE "[0-9.]+$")
+              agp_version=$(grep -oE "id\([\"']com\.android\.(application|library)[\"']\)\s*version\s*[\"']([0-9.]+)[\"']" build.gradle.kts 2>/dev/null | grep -oE "[0-9.]+$" || true)
             fi
           fi
           if [ -z "${agp_version}" ] && [ -f gradle/libs.versions.toml ]; then
-            agp_version=$(grep -iE "com\.android\.(application|library)" gradle/libs.versions.toml -A 2 | grep -oE "version\s*=\s*[\"']?[0-9.]+[\"']?" | grep -oE "[0-9.]+")
+            agp_version=$(grep -iE "com\.android\.(application|library)" gradle/libs.versions.toml 2>/dev/null -A 2 | grep -oE "version\s*=\s*[\"']?[0-9.]+[\"']?" | grep -oE "[0-9.]+" || true)
           fi
           
           if [ -n "${agp_version}" ] ; then
@@ -110,7 +110,7 @@ jobs:
             echo "Gradle wrapper script (gradlew) not found."
             generate_wrapper=true
           elif [ -f gradle/wrapper/gradle-wrapper.properties ]; then
-            current_wrapper_version=$(grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties | sed -n 's/.*gradle-\([0-9.]*\)-\(bin\|all\)\.zip.*/\1/p')
+            current_wrapper_version=$(grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties 2>/dev/null | sed -n 's/.*gradle-\([0-9.]*\)-\(bin\|all\)\.zip.*/\1/p' || true)
             if [ "${current_wrapper_version}" != "${target_gradle_version}" ]; then
               echo "Gradle wrapper version mismatch: current is ${current_wrapper_version}, target is ${target_gradle_version}."
               generate_wrapper=true
